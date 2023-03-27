@@ -14,7 +14,6 @@ from config import get_config
 from lib.data_loaders import make_data_loader
 from lib.utils import load_model
 from lib.timer import *
-from lib.transformations import quaternion_from_matrix
 
 
 ch = logging.StreamHandler(sys.stdout)
@@ -51,20 +50,14 @@ def main(config):
 
         logging.info(model)
 
-        # evaluation model
-        model.eval()
-
         num_data = 0
         data_timer, matching_timer = Timer(), Timer()
         tot_num_data = len(inf_data_loader.dataset)
 
         data_loader_iter = inf_data_loader.__iter__()
 
-        # for gpu memory consideration
-        max_nb_points = 20000
-
+        matches_list = []
         for batch_idx in range(tot_num_data):
-
             data_timer.tic()
             input_3d_xyz, input_2d_xy = data_loader_iter.next()
             data_timer.toc()
@@ -86,12 +79,26 @@ def main(config):
             _, P_topk_i = torch.topk(prob_matrix.flatten(start_dim=-2), k=k, dim=-1, largest=True, sorted=True)
             p3d_indices = P_topk_i / prob_matrix.size(-1)  # bxk (integer division)
             p2d_indices = P_topk_i % prob_matrix.size(-1)  # bxk
-
+            # more than 5 2D-3D matches
+            if k > 5:
+                # compute the rotation and translation error
+                K = np.float32(np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]))
+                dist_coeff = np.float32(np.array([0.0, 0.0, 0.0, 0.0]))
+                #  RANSAC p3p
+                p2d_np = p2d_cur[0, p2d_indices[0, :k], :].cpu().numpy()
+                p3d_np = p3d_cur[0, p3d_indices[0, :k], :].cpu().numpy()
+                matches_list.append(np.concatenate((p2d_np, p3d_np), axis=1))
+                retval, rvec, tvec, inliers = cv2.solvePnPRansac(
+                    p3d_np, p2d_np, K, dist_coeff,
+                    iterationsCount=1000,
+                    reprojectionError=0.01,
+                    flags=cv2.SOLVEPNP_P3P)
+                print(f'retval: {retval}, rvec: {rvec}, tvec: {tvec}, inliers: {inliers}')
             torch.cuda.empty_cache()
-
             data_timer.reset()
-
             num_data += 1
+        matches = np.concatenate(matches_list, axis=0)
+        np.savetxt('matches_2d_3d.csv', matches, delimiter=',')
 
 
 if __name__ == '__main__':
