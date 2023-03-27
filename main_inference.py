@@ -109,11 +109,11 @@ if __name__ == '__main__':
     # dataset dir
     # configs.data_dir = "/media/liu/data"
     # the used dataset
-    configs.dataset = "megaDepth"
+    # configs.dataset = "megaDepth"
     # configs.dataset = "modelnet40"
     # pre-trained networks
     configs.debug_nb = "preTrained"
 
-    configs.weights = os.path.join(configs.out_dir, configs.dataset, configs.debug_nb) + '/best_val_checkpoint.pth'
+    configs.weights = os.path.join(configs.out_dir, 'megaDepth', configs.debug_nb) + '/best_val_checkpoint.pth'
 
     main(configs)

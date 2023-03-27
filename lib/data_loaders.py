@@ -55,7 +55,8 @@ class Dataset(torch.utils.data.Dataset):
         self.config = config
         self.batch_size = batch_size
         self.data = load_data_3d2d_pairs(config, phase)
-        self.len = len(self.data["t"])
+        if phase != "infer":
+            self.len = len(self.data["t"])
 
     def __getitem__(self, index):
 
