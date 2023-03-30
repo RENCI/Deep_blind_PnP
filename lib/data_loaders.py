@@ -57,6 +57,8 @@ class Dataset(torch.utils.data.Dataset):
         self.data = load_data_3d2d_pairs(config, phase)
         if phase != "infer":
             self.len = len(self.data["t"])
+        else:
+            self.len = max(len(self.data["input_3d"]), len(self.data["input_2d"]))
 
     def __getitem__(self, index):
 

@@ -50,6 +50,9 @@ def main(config):
 
         logging.info(model)
 
+        # must be called to set dropout and batch normalization layers to evaluate mode before running inference
+        model.eval()
+
         num_data = 0
         data_timer, matching_timer = Timer(), Timer()
         tot_num_data = len(inf_data_loader.dataset)
@@ -57,6 +60,7 @@ def main(config):
         data_loader_iter = inf_data_loader.__iter__()
 
         matches_list = []
+        matches_indices_list = []
         for batch_idx in range(tot_num_data):
             data_timer.tic()
             input_3d_xyz, input_2d_xy = data_loader_iter.next()
@@ -71,13 +75,12 @@ def main(config):
             matching_timer.tic()
             prob_matrix = model(p3d_cur, p2d_cur)
             matching_timer.toc()
-
             # compute the topK correspondences
             # note cv2.solvePnPRansac is not stable, sometimes wrong!
             # please use https://github.com/k88joshi/posest, and cite the original paper
-            k = min(2000, round(p3d_cur.size(1) * p2d_cur.size(1)))  # Choose at most 2000 points in the testing stage
+            k = min(2000, round(p3d_cur.size(1) * p2d_cur.size(1)))  # Choose at most 2000 points in the inference stage
             _, P_topk_i = torch.topk(prob_matrix.flatten(start_dim=-2), k=k, dim=-1, largest=True, sorted=True)
-            p3d_indices = P_topk_i / prob_matrix.size(-1)  # bxk (integer division)
+            p3d_indices = torch.div(P_topk_i, prob_matrix.size(-1), rounding_mode='floor')  # bxk (integer division)
             p2d_indices = P_topk_i % prob_matrix.size(-1)  # bxk
             # more than 5 2D-3D matches
             if k > 5:
@@ -88,6 +91,7 @@ def main(config):
                 p2d_np = p2d_cur[0, p2d_indices[0, :k], :].cpu().numpy()
                 p3d_np = p3d_cur[0, p3d_indices[0, :k], :].cpu().numpy()
                 matches_list.append(np.concatenate((p2d_np, p3d_np), axis=1))
+                matches_indices_list.append(np.concatenate((p2d_indices.cpu().numpy().T, p3d_indices.cpu().numpy().T), axis=1))
                 retval, rvec, tvec, inliers = cv2.solvePnPRansac(
                     p3d_np, p2d_np, K, dist_coeff,
                     iterationsCount=1000,
@@ -98,8 +102,9 @@ def main(config):
             data_timer.reset()
             num_data += 1
         matches = np.concatenate(matches_list, axis=0)
-        np.savetxt('matches_2d_3d.csv', matches, delimiter=',')
-
+        np.savetxt('/projects/ncdot/geotagging/blindPnP_output/matches_2d_3d.csv', matches, fmt='%i', delimiter=',')
+        np.savetxt('/projects/ncdot/geotagging/blindPnP_output/matches_2d_3d_indices.csv',
+                   np.concatenate(matches_indices_list, axis=0), fmt='%i', delimiter=',')
 
 if __name__ == '__main__':
 
