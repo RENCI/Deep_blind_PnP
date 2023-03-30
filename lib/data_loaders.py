@@ -10,10 +10,14 @@ import sys
 def load_data_3d2d_pairs(config, dataset_split):
     """Main data loading routine"""
     print("loading the dataset {} ....\n".format(config.dataset))
-
-    # the vars to be loaded
-    # var_name_list = ["matches", "focal", "R", "t", "inlier_matches", "non_matchable_2D", "non_matchable_3D"]
-    var_name_list = ["matches", "focal", "R", "t", "inlier_matches"]
+    if dataset_split != "infer":
+        # the vars to be loaded
+        # var_name_list = ["matches", "focal", "R", "t", "inlier_matches", "non_matchable_2D", "non_matchable_3D"]
+        var_name_list = ["matches", "focal", "R", "t", "inlier_matches"]
+        cur_folder = "/".join([config.data_dir, config.dataset + "_" + dataset_split])
+    else:
+        var_name_list = ["input_3d", "input_2d"]
+        cur_folder = os.path.join(config.data_dir, config.dataset)
 
     # check system python version
     # I use python2 to save the dataset
@@ -24,7 +28,6 @@ def load_data_3d2d_pairs(config, dataset_split):
     # Let's unpickle and save data
     data = {}
     # load the data
-    cur_folder = "/".join([config.data_dir, config.dataset + "_" + dataset_split])
     for var_name in var_name_list:
         in_file_name = os.path.join(cur_folder, var_name) + ".pkl"
         with open(in_file_name, "rb") as ifp:
@@ -52,34 +55,41 @@ class Dataset(torch.utils.data.Dataset):
         self.config = config
         self.batch_size = batch_size
         self.data = load_data_3d2d_pairs(config, phase)
-        self.len = len(self.data["t"])
+        if phase != "infer":
+            self.len = len(self.data["t"])
+        else:
+            self.len = max(len(self.data["input_3d"]), len(self.data["input_2d"]))
 
     def __getitem__(self, index):
 
         # input_3d_xyz
-        input_3d_xyz = self.data["matches"][index][:, 2:5]
-        # input_2d_xy, note 2D coordinates have been normalized using its camera intrinsic matrix
-        input_2d_xy = self.data["matches"][index][:, 0:2]
-        # the rotation matrix and translation vector
-        Rs_tr = self.data["R"][index]
-        ts_tr = self.data["t"][index]
-        # focal length
-        focal = self.data["focal"][index]
-        # contains the inlier 3D-2D matching indexes
-        input_match = self.data["inlier_matches"][index]
-        # number of inlier matches
-        numInliers = input_match.shape[0]
+        if self.phase == "infer":
+            input_3d_xyz = self.data["input_3d"][index]
+            input_2d_xy = self.data["input_2d"][index]
+        else:
+            input_3d_xyz = self.data["matches"][index][:, 2:5]
+            # input_2d_xy, note 2D coordinates have been normalized using its camera intrinsic matrix
+            input_2d_xy = self.data["matches"][index][:, 0:2]
+            # the rotation matrix and translation vector
+            Rs_tr = self.data["R"][index]
+            ts_tr = self.data["t"][index]
+            # focal length
+            focal = self.data["focal"][index]
+            # contains the inlier 3D-2D matching indexes
+            input_match = self.data["inlier_matches"][index]
+            # number of inlier matches
+            numInliers = input_match.shape[0]
 
         if self.phase == "train":
             # padding to the required training number points
             matches = np.zeros([self.config.numPointsTrain, self.config.numPointsTrain], dtype=np.float32)
-        else:
+        elif self.phase == "test":
             matches = np.zeros([input_3d_xyz.shape[0], input_2d_xy.shape[0]], dtype=np.float32)
             # fill the inlier matching mask
             matches[input_match[:, 0], input_match[:, 1]] = 1.0
-
             return matches, numInliers, input_3d_xyz.astype(np.float32), input_2d_xy.astype(np.float32), Rs_tr.astype(np.float32), ts_tr[None].reshape(3, 1).astype(np.float32), np.asarray(focal, dtype=np.float32)
-
+        else:  # inference
+            return input_3d_xyz.astype(np.float32), input_2d_xy.astype(np.float32)
         # ------------------------------------------
         # padding for training
         # if the number of inlier correspondences is larger than numPointsTrain, randomly select numPointsTrain inliers
@@ -153,14 +163,15 @@ class Dataset(torch.utils.data.Dataset):
 
 def make_data_loader(config, phase, batch_size, num_threads=0, shuffle=None):
 
-  assert phase in ['train', 'valid']
+  assert phase in ['train', 'valid', 'infer']
   # only shuffle in training
   if shuffle is None:
-    shuffle = (phase != 'valid')
+    shuffle = (phase != 'valid' and phase != 'infer')
 
   dset = Dataset(phase, config=config, batch_size=batch_size)
 
-  loader = torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=shuffle, num_workers=num_threads, pin_memory=False, drop_last=True)
+  loader = torch.utils.data.DataLoader(dset, batch_size=batch_size, shuffle=shuffle, num_workers=num_threads,
+                                       pin_memory=False, drop_last=True)
 
   return loader
 
@@ -184,3 +195,7 @@ if __name__ == '__main__':
     val_loader = make_data_loader(config, config.val_phase, 1, num_threads=config.val_num_thread)
     val_data_loader_iter = val_loader.__iter__()
     val_input_dict = val_data_loader_iter.next()
+
+    inf_loader = make_data_loader(config, config.infer_phase, 1, num_threads=config.test_num_thread)
+    inf_data_loader_iter = inf_loader.__iter__()
+    inf_input_dict = inf_data_loader_iter.next()

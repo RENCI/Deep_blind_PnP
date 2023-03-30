@@ -39,12 +39,13 @@ net_arg.add_argument('--best_val_metric', type=str, default='avg_inlier_ratio')
 # Data
 
 data_arg = add_argument_group("Data")
-data_arg.add_argument("--data_dir", type=str, default="/media/liu/data/PAMI/Data", help="dir of dataset")
-data_arg.add_argument("--dataset", type=str, default="modelnet40", help="used dataset")
+data_arg.add_argument("--data_dir", type=str, default="/projects/ncdot/geotagging/blindPnP_input", help="dir of dataset")
+data_arg.add_argument("--dataset", type=str, default="d13_route_40001001011", help="used dataset")
 
 # Data loader configs
 data_arg.add_argument('--train_phase', type=str, default="train")
 data_arg.add_argument('--val_phase', type=str, default="valid")
+data_arg.add_argument('--infer_phase', type=str, default="infer")
 
 # -----------------------------------------------------------------------------
 # Training
